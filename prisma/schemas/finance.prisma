@@ -1,0 +1,226 @@
+// ============================================================
+// finance.prisma
+// Financial ledger domain — monthly reports, income, expenses,
+// liabilities, and receivables.
+//
+// Design notes:
+//  - CurrencyMeta is stored as a Json column on IncomeRecord /
+//    ExpenseRecord — avoids a join on every read, and the shape
+//    is a simple flat object that does not need relational queries.
+//  - Monetary amounts use Decimal(15,2) — exact BDT precision,
+//    no floating-point drift.
+//  - All enum values mirror the TypeScript union types in
+//    frontend/src/types/finance.ts.
+//  - created_at / updated_at follow the same convention as user.prisma.
+// ============================================================
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum ReportStatus {
+  DRAFT
+  AUDITED
+  CLOSED
+
+  @@map("report_status")
+}
+
+enum IncomeCategory {
+  RETAINED_FUND
+  CLIENT_RETAINER
+  FREELANCE_ESCROW
+  BONUS_AND_TIPS
+  PROJECT_MILESTONE
+  OTHER_INCOME
+
+  @@map("income_category")
+}
+
+enum ExpenseCategoryGroup {
+  PROFIT_SHARE
+  CAPITAL_ASSETS
+  DEBT_SETTLEMENT
+  TEAM_ADVANCES
+  MARKETING_AND_GROWTH
+  SOFTWARE_AND_SAAS
+  OFFICE_AND_FOOD
+  OPERATIONS_AND_BANKING
+
+  @@map("expense_category_group")
+}
+
+enum ExpenseStatus {
+  COMPLETED
+  PARTIALLY_PAID
+  ADVANCE_RECEIVABLE
+  RECURRING
+
+  @@map("expense_status")
+}
+
+enum LiabilityStatus {
+  DUE
+  PARTIALLY_PAID
+  SETTLED
+
+  @@map("liability_status")
+}
+
+enum ReceivableStatus {
+  PENDING
+  IN_PROGRESS
+  COLLECTED
+
+  @@map("receivable_status")
+}
+
+// ── Models ───────────────────────────────────────────────────────────────────
+
+/// One row per monthly financial report.
+/// Relations cascade — deleting a report removes all its line items.
+model FinancialReport {
+  id String @id @default(uuid()) @db.Uuid
+
+  organization String @db.VarChar(255)
+  report_title String @db.VarChar(500)
+  period       String @db.VarChar(255)
+  month        String @db.VarChar(50)
+  year         Int
+
+  status                    ReportStatus
+  drive_verification_url    String?      @db.Text
+
+  // ── Executive Summary ─────────────────────────────────────────────────────
+  total_income_bdt   Decimal @db.Decimal(15, 2)
+  total_expenses_bdt Decimal @db.Decimal(15, 2)
+  net_balance_bdt    Decimal @db.Decimal(15, 2)
+
+  // ── Sub-totals (denormalised for fast reads) ───────────────────────────────
+  sub_total_income_bdt  Decimal @db.Decimal(15, 2)
+  total_liabilities_bdt Decimal @db.Decimal(15, 2)
+  total_receivables_bdt Decimal @db.Decimal(15, 2)
+
+  // ── Final Summary ─────────────────────────────────────────────────────────
+  net_remaining_fund_balance_bdt Decimal  @db.Decimal(15, 2)
+  reconciliation_notes           String?  @db.Text
+
+  // ── Relations ─────────────────────────────────────────────────────────────
+  income_records    IncomeRecord[]
+  expense_records   ExpenseRecord[]
+  liability_records LiabilityRecord[]
+  receivable_records ReceivableRecord[]
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime? @updatedAt @db.Timestamptz
+
+  @@unique([month, year])
+  @@index([year])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
+  @@map("FinancialReport")
+}
+
+/// Income line items for a FinancialReport.
+model IncomeRecord {
+  id String @id @default(uuid()) @db.Uuid
+
+  report_id String          @db.Uuid
+  report    FinancialReport @relation(fields: [report_id], references: [id], onDelete: Cascade)
+
+  source    String         @db.VarChar(500)
+  category  IncomeCategory
+  amount_bdt Decimal       @db.Decimal(15, 2)
+
+  /// Optional FX metadata — stored as JSON for simplicity.
+  /// Shape: { originalCurrency, originalAmount, exchangeRateEstimated, incentivesOrNotes }
+  currency_meta Json?
+
+  notes    String? @db.Text
+  date     DateTime @db.Date
+  verified Boolean  @default(false)
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime? @updatedAt @db.Timestamptz
+
+  @@index([report_id])
+  @@index([category])
+  @@index([date(sort: Desc)])
+  @@map("IncomeRecord")
+}
+
+/// Expense line items for a FinancialReport.
+model ExpenseRecord {
+  id String @id @default(uuid()) @db.Uuid
+
+  report_id String          @db.Uuid
+  report    FinancialReport @relation(fields: [report_id], references: [id], onDelete: Cascade)
+
+  category_title String               @db.VarChar(500)
+  category_group ExpenseCategoryGroup
+  amount_bdt     Decimal              @db.Decimal(15, 2)
+
+  payment_method      String  @db.VarChar(255)
+  payment_method_type String? @db.VarChar(50)
+
+  /// Remaining liability amount for partially-paid expenses.
+  remaining_liability_bdt Decimal? @db.Decimal(15, 2)
+
+  notes    String?       @db.Text
+  status   ExpenseStatus
+  date     DateTime      @db.Date
+  verified Boolean       @default(false)
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime? @updatedAt @db.Timestamptz
+
+  @@index([report_id])
+  @@index([category_group])
+  @@index([status])
+  @@index([date(sort: Desc)])
+  @@map("ExpenseRecord")
+}
+
+/// Outstanding liabilities linked to a FinancialReport.
+model LiabilityRecord {
+  id String @id @default(uuid()) @db.Uuid
+
+  report_id String          @db.Uuid
+  report    FinancialReport @relation(fields: [report_id], references: [id], onDelete: Cascade)
+
+  description       String          @db.VarChar(500)
+  vendor_or_creditor String         @db.VarChar(255)
+  total_initial_bdt Decimal         @db.Decimal(15, 2)
+  paid_bdt          Decimal         @db.Decimal(15, 2)
+  remaining_due_bdt Decimal         @db.Decimal(15, 2)
+  status            LiabilityStatus
+  notes             String?         @db.Text
+  due_date          String?         @db.VarChar(100)
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime? @updatedAt @db.Timestamptz
+
+  @@index([report_id])
+  @@index([status])
+  @@map("LiabilityRecord")
+}
+
+/// Outstanding receivables linked to a FinancialReport.
+model ReceivableRecord {
+  id String @id @default(uuid()) @db.Uuid
+
+  report_id String          @db.Uuid
+  report    FinancialReport @relation(fields: [report_id], references: [id], onDelete: Cascade)
+
+  description           String           @db.VarChar(500)
+  debtor_or_source      String           @db.VarChar(255)
+  total_receivable_bdt  Decimal          @db.Decimal(15, 2)
+  repayment_plan        String           @db.Text
+  status                ReceivableStatus
+  notes                 String?          @db.Text
+
+  created_at DateTime  @default(now()) @db.Timestamptz
+  updated_at DateTime? @updatedAt @db.Timestamptz
+
+  @@index([report_id])
+  @@index([status])
+  @@map("ReceivableRecord")
+}
