@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "npx prisma generate && nest build",
     "format": "npx prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "docker compose -f dev.docker-compose.yml up -d postgres redis && nest start",
     "start:dev": "docker compose -f dev.docker-compose.yml up -d postgres redis && cross-env NODE_OPTIONS=--dns-result-order=ipv4first nest start --watch",

@@ -246,7 +246,14 @@ export class FinanceDAO {
         data: {
           ...reportFields,
           income_records: income_records?.length
-            ? { create: income_records }
+            ? {
+                create: income_records.map((item) => ({
+                  ...item,
+                  currency_meta: item.currency_meta
+                    ? (item.currency_meta as Prisma.InputJsonValue)
+                    : undefined,
+                })),
+              }
             : undefined,
           expense_records: expense_records?.length
             ? { create: expense_records }
@@ -265,7 +272,7 @@ export class FinanceDAO {
         `Created financial report [${report.month} ${report.year}] id=${report.id}`,
       );
 
-      return report;
+      return report as unknown as FullReport;
     });
   }
 
