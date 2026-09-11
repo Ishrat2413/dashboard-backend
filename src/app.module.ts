@@ -30,6 +30,7 @@ import { EmailTestController } from './modules/email-service/test-email-service/
 import { HealthModule } from './modules/health/health.module';
 import { MetricsModule } from './common/metrics/metrics.module';
 import { PrismaModule } from './shared/prisma/prisma.module';
+import { FinanceModule } from './modules/finance-service/finance.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     HealthModule, // GET /health
     AuthModule, // POST /api/v1/auth/*
     UserModule, // GET/PATCH /api/v1/profile/* — user self-service profile
+    FinanceModule, // GET/POST/PATCH /api/v1/reports/* — financial ledger
   ],
   // Test/demo controller — gated behind NODE_ENV !== 'production'.
   // For development/testing only; must not be accessible in production.
