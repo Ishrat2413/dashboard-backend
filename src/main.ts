@@ -143,7 +143,13 @@ async function bootstrap() {
 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept-Language',
+      'X-Requested-With',
+      'X-Client-Version',
+    ],
 
     credentials: true,
   });
